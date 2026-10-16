@@ -1,0 +1,449 @@
+{
+  "meta": {
+    "generator": "visualizer",
+    "schema_version": 1,
+    "model_sha": "48e31dfb56ad9ed51d35e0bdcfdfe2d44211b0b6",
+    "model_date": "2026-07-28",
+    "reviewed_sha": "4a844a2f4d1f2e1340eb086fb92c495e53b0bae5",
+    "dirty": false,
+    "scope": ".",
+    "detail": "container",
+    "readme": {
+      "embed": true,
+      "path": "README.md",
+      "placement": "after-intro"
+    },
+    "notes": []
+  },
+  "system": {
+    "name": "Redis Iris Demos",
+    "summary": "A local demo app that shows Redis Iris behind a chat agent, with one swappable domain pack per industry. A React chat UI streams each question to a FastAPI backend, which runs a fixed pipeline: a semantic-routing guardrail, a LangCache lookup, Agent Memory enrichment, then a LangGraph ReAct agent on OpenAI. The agent reads business data through Context Retriever MCP tools, which query the demo's Redis database. Setup scripts generate synthetic data for the active domain, create a Context Surface, load the data and seed memory and cache.",
+    "highlights": [
+      "All credentials sit in the local `.env` and are read by the backend and setup scripts; the browser holds none.",
+      "`make setup` sends the Redis password to the Context Surfaces admin API, so Context Retriever reaches your database with it.",
+      "At runtime the agent uses only the per-surface `MCP_AGENT_KEY`; `CTX_ADMIN_KEY` is used by setup scripts alone.",
+      "One Redis database holds demo data, LangGraph checkpoints, router vectors and Agent Memory's `memory:*` keys; `flush_redis.py` wipes all but `memory:*`.",
+      "Every prompt leaves the machine to OpenAI, LangCache and Agent Memory before the agent runs."
+    ]
+  },
+  "boundaries": [
+    {
+      "id": "local",
+      "name": "Your machine",
+      "kind": "local"
+    },
+    {
+      "id": "iris",
+      "name": "Redis Iris services",
+      "kind": "saas"
+    },
+    {
+      "id": "redis-cloud",
+      "name": "Redis Cloud (your database)",
+      "kind": "cloud"
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "kind": "saas"
+    }
+  ],
+  "components": [
+    {
+      "id": "presenter",
+      "name": "Presenter",
+      "kind": "client",
+      "boundary": "local",
+      "tech": "browser + terminal",
+      "responsibility": "Runs make setup and make dev, then chats with the domain assistant in the browser.",
+      "evidence": [
+        "doc:README.md#getting-started",
+        "Makefile"
+      ]
+    },
+    {
+      "id": "chat-ui",
+      "name": "Chat UI",
+      "kind": "service",
+      "boundary": "local",
+      "tech": "React + Vite, :3040",
+      "responsibility": "Branded chat and activity panel; streams answers and tool traces over SSE, proxying /api to the backend.",
+      "evidence": [
+        "frontend/src/App.tsx",
+        "frontend/src/components/ActivityPanel.tsx",
+        "frontend/vite.config.ts"
+      ]
+    },
+    {
+      "id": "chat-pipeline",
+      "name": "Chat pipeline",
+      "kind": "service",
+      "boundary": "local",
+      "tech": "FastAPI, :8040",
+      "responsibility": "Runs guardrail, cache, memory and agent phases for each message and streams every step back as SSE.",
+      "evidence": [
+        "backend/app/main.py",
+        "backend/app/langcache_service.py",
+        "backend/app/memory_service.py",
+        "backend/app/rag_service.py"
+      ]
+    },
+    {
+      "id": "semantic-router",
+      "name": "Semantic router",
+      "kind": "module",
+      "boundary": "local",
+      "tech": "redisvl SemanticRouter",
+      "responsibility": "Blocks off-topic or disallowed prompts by vector distance to the domain's guardrail routes.",
+      "evidence": [
+        "backend/app/guardrail_service.py"
+      ]
+    },
+    {
+      "id": "langgraph-agent",
+      "name": "LangGraph agent",
+      "kind": "module",
+      "boundary": "local",
+      "tech": "ReAct, langchain-openai",
+      "responsibility": "Plans with the LLM, calls MCP and domain tools, and keeps thread state in a Redis checkpointer.",
+      "evidence": [
+        "backend/app/langgraph_agent.py",
+        "backend/app/context_surface_service.py"
+      ]
+    },
+    {
+      "id": "domain-pack",
+      "name": "Domain packs",
+      "kind": "module",
+      "boundary": "local",
+      "tech": "DomainPack protocol",
+      "responsibility": "One per industry: schema, branding, prompt, guardrail routes, seeds and internal tools. DEMO_DOMAIN picks one.",
+      "members": [
+        "Redis Eats (reddash)",
+        "ElectroHub",
+        "ShiftIQ (finance-researcher)",
+        "RedHealthConnect (healthcare)",
+        "Radish Bank",
+        "R-Mobile",
+        "Sports Desk"
+      ],
+      "evidence": [
+        "backend/app/core/domain_contract.py",
+        "backend/app/core/domain_loader.py",
+        "backend/app/internal_tools.py",
+        "domains/"
+      ]
+    },
+    {
+      "id": "setup-scripts",
+      "name": "Setup scripts",
+      "kind": "entrypoint",
+      "boundary": "local",
+      "tech": "make setup / make reset",
+      "responsibility": "Generates models and data for the active domain, provisions the surface, loads Redis, seeds memory and cache.",
+      "members": [
+        "generate_models",
+        "generate_data",
+        "flush_redis",
+        "setup_surface",
+        "load_data",
+        "seed_memories",
+        "seed_langcache"
+      ],
+      "evidence": [
+        "Makefile",
+        "scripts/generate_models.py",
+        "scripts/generate_data.py",
+        "scripts/flush_redis.py",
+        "scripts/setup_surface.py",
+        "scripts/load_data.py",
+        "scripts/seed_memories.py",
+        "scripts/seed_langcache.py",
+        "doc:README.md#what-make-setup-does"
+      ]
+    },
+    {
+      "id": "langcache",
+      "name": "LangCache",
+      "kind": "external",
+      "boundary": "iris",
+      "tech": "REST semantic cache",
+      "responsibility": "Returns a stored answer when a new prompt is semantically close to a cached one.",
+      "evidence": [
+        "backend/app/langcache_service.py",
+        "scripts/seed_langcache.py"
+      ]
+    },
+    {
+      "id": "agent-memory",
+      "name": "Agent Memory",
+      "kind": "external",
+      "boundary": "iris",
+      "tech": "REST, /v1/stores/{id}",
+      "responsibility": "Keeps short-term session events and searchable long-term memories per user.",
+      "evidence": [
+        "backend/app/memory_service.py",
+        "scripts/seed_memories.py"
+      ]
+    },
+    {
+      "id": "context-retriever",
+      "name": "Context Retriever",
+      "kind": "external",
+      "boundary": "iris",
+      "tech": "Context Surfaces, MCP",
+      "responsibility": "Exposes the domain's data model as MCP tools and imports records into your Redis database.",
+      "evidence": [
+        "backend/app/context_surface_service.py",
+        "scripts/setup_surface.py",
+        "scripts/load_data.py"
+      ]
+    },
+    {
+      "id": "redis",
+      "name": "Redis database",
+      "kind": "datastore",
+      "boundary": "redis-cloud",
+      "tech": "Search, JSON, TimeSeries",
+      "responsibility": "The one database behind every domain: business data, agent state, router vectors and memory.",
+      "holds": [
+        {
+          "data": "Domain entities as JSON with search and vector indexes",
+          "lifetime": "Until the next make setup or make reset"
+        },
+        {
+          "data": "LangGraph checkpoints per thread_id",
+          "lifetime": "No TTL; until the next flush"
+        },
+        {
+          "data": "Guardrail route vectors",
+          "lifetime": "Rebuilt on every backend start"
+        },
+        {
+          "data": "Agent Memory memory:* keys and index",
+          "lifetime": "Survive flush; cleared by seed_memories"
+        },
+        {
+          "data": "Domain extras: dataset meta, time series, event stream",
+          "lifetime": "Until the next flush"
+        }
+      ],
+      "evidence": [
+        "backend/app/redis_connection.py",
+        "backend/app/langgraph_agent.py",
+        "backend/app/domain_events.py",
+        "scripts/flush_redis.py",
+        "doc:README.md#redis-cloud-services-needed"
+      ]
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI API",
+      "kind": "external",
+      "boundary": "openai",
+      "tech": "gpt-4o default, embeddings",
+      "responsibility": "Chat model for the agent and verifier, and embeddings for the guardrail and the simple-RAG mode.",
+      "evidence": [
+        "backend/app/settings.py",
+        "backend/app/langgraph_agent.py",
+        "backend/app/guardrail_service.py"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "presenter",
+      "to": "chat-ui",
+      "label": "asks a question",
+      "kind": "sync",
+      "step": 1
+    },
+    {
+      "from": "chat-ui",
+      "to": "chat-pipeline",
+      "label": "POST /api/chat/stream",
+      "kind": "sync",
+      "step": 2
+    },
+    {
+      "from": "chat-pipeline",
+      "to": "semantic-router",
+      "label": "guardrail check",
+      "kind": "sync",
+      "step": 3
+    },
+    {
+      "from": "chat-pipeline",
+      "to": "langcache",
+      "label": "semantic cache search",
+      "kind": "sync",
+      "step": 4
+    },
+    {
+      "from": "chat-pipeline",
+      "to": "agent-memory",
+      "label": "session + long-term",
+      "kind": "sync",
+      "step": 5
+    },
+    {
+      "from": "chat-pipeline",
+      "to": "langgraph-agent",
+      "label": "memory-enriched prompt",
+      "kind": "sync",
+      "step": 6
+    },
+    {
+      "from": "langgraph-agent",
+      "to": "openai",
+      "label": "chat + tool calls",
+      "kind": "sync",
+      "step": 7
+    },
+    {
+      "from": "langgraph-agent",
+      "to": "context-retriever",
+      "label": "MCP tools, agent key",
+      "kind": "sync",
+      "step": 8
+    },
+    {
+      "from": "context-retriever",
+      "to": "redis",
+      "label": "queries domain data",
+      "kind": "sync",
+      "step": 9
+    },
+    {
+      "from": "semantic-router",
+      "to": "openai",
+      "label": "embeds prompt",
+      "kind": "sync"
+    },
+    {
+      "from": "semantic-router",
+      "to": "redis",
+      "label": "route vector search",
+      "kind": "sync"
+    },
+    {
+      "from": "langgraph-agent",
+      "to": "redis",
+      "label": "thread checkpoints",
+      "kind": "sync"
+    },
+    {
+      "from": "langgraph-agent",
+      "to": "domain-pack",
+      "label": "internal tools",
+      "kind": "sync"
+    },
+    {
+      "from": "domain-pack",
+      "to": "redis",
+      "label": "direct reads, TS.RANGE",
+      "kind": "sync"
+    },
+    {
+      "from": "agent-memory",
+      "to": "redis",
+      "label": "stores memory:* keys",
+      "kind": "sync"
+    },
+    {
+      "from": "chat-pipeline",
+      "to": "redis",
+      "label": "RAG search, events",
+      "kind": "sync"
+    },
+    {
+      "from": "presenter",
+      "to": "setup-scripts",
+      "label": "make setup",
+      "kind": "sync"
+    },
+    {
+      "from": "setup-scripts",
+      "to": "domain-pack",
+      "label": "schema, data, seeds",
+      "kind": "sync"
+    },
+    {
+      "from": "setup-scripts",
+      "to": "context-retriever",
+      "label": "Redis creds, imports",
+      "kind": "auth"
+    },
+    {
+      "from": "setup-scripts",
+      "to": "agent-memory",
+      "label": "seeds memories",
+      "kind": "sync"
+    },
+    {
+      "from": "setup-scripts",
+      "to": "langcache",
+      "label": "flushes, seeds cache",
+      "kind": "sync"
+    },
+    {
+      "from": "setup-scripts",
+      "to": "redis",
+      "label": "flush, keeps memory:*",
+      "kind": "sync"
+    }
+  ],
+  "flows": [
+    {
+      "id": "chat-turn",
+      "name": "A chat turn that reaches the agent",
+      "description": "A question that passes the guardrail and misses the cache. Every step is streamed to the activity panel as an SSE tool-call or tool-result event.",
+      "steps": [
+        {"from": "chat-ui", "to": "chat-pipeline", "msg": "POST /api/chat/stream (thread_id, messages)", "kind": "call"},
+        {"from": "chat-pipeline", "to": "semantic-router", "msg": "embed + check prompt against routes", "kind": "call"},
+        {"from": "semantic-router", "to": "chat-pipeline", "msg": "allowed", "kind": "return"},
+        {"from": "chat-pipeline", "to": "langcache", "msg": "POST /entries/search", "kind": "call"},
+        {"from": "langcache", "to": "chat-pipeline", "msg": "miss", "kind": "return"},
+        {"from": "chat-pipeline", "to": "agent-memory", "msg": "add user event, get session, search long-term", "kind": "call"},
+        {"from": "chat-pipeline", "to": "langgraph-agent", "msg": "prompt + retrieved memory context", "kind": "call"},
+        {"from": "langgraph-agent", "to": "openai", "msg": "messages + tool definitions", "kind": "call"},
+        {"from": "langgraph-agent", "to": "context-retriever", "msg": "query_tool(MCP_AGENT_KEY, tool, args)", "kind": "call"},
+        {"from": "context-retriever", "to": "redis", "msg": "search domain entities", "kind": "call"},
+        {"from": "langgraph-agent", "to": "chat-pipeline", "msg": "final answer, streamed as text-delta", "kind": "return"},
+        {"from": "chat-pipeline", "to": "agent-memory", "msg": "add assistant event to the session", "kind": "call"}
+      ]
+    },
+    {
+      "id": "short-circuits",
+      "name": "Guardrail block and cache hit",
+      "description": "The two ways a turn ends before the agent runs, so no chat model call is made.",
+      "steps": [
+        {"from": "chat-ui", "to": "chat-pipeline", "msg": "POST /api/chat/stream", "kind": "call"},
+        {"from": "chat-pipeline", "to": "semantic-router", "msg": "check(prompt vector)", "kind": "call"},
+        {"from": "semantic-router", "to": "redis", "msg": "nearest route reference", "kind": "call"},
+        {"from": "semantic-router", "to": "chat-pipeline", "msg": "blocked route + block message", "kind": "return"},
+        {"from": "chat-pipeline", "to": "chat-ui", "msg": "canned reply, done (guardrailBlocked)", "kind": "return"},
+        {"from": "chat-pipeline", "to": "chat-pipeline", "msg": "otherwise, if allowed", "kind": "note"},
+        {"from": "chat-pipeline", "to": "langcache", "msg": "POST /entries/search", "kind": "call"},
+        {"from": "langcache", "to": "chat-pipeline", "msg": "hit: cached response + similarity", "kind": "return"},
+        {"from": "chat-pipeline", "to": "chat-ui", "msg": "cached reply, done (cacheHit)", "kind": "return"}
+      ]
+    },
+    {
+      "id": "make-setup",
+      "name": "make setup for a domain",
+      "description": "First run or a domain switch. make reset skips model generation and reuses the data files.",
+      "steps": [
+        {"from": "presenter", "to": "setup-scripts", "msg": "make setup DOMAIN=<id>", "kind": "call"},
+        {"from": "setup-scripts", "to": "domain-pack", "msg": "generate models + synthetic JSONL from schema", "kind": "call"},
+        {"from": "setup-scripts", "to": "redis", "msg": "delete every key except memory:*", "kind": "call"},
+        {"from": "setup-scripts", "to": "context-retriever", "msg": "create surface: data model + Redis creds (admin key)", "kind": "call"},
+        {"from": "context-retriever", "to": "setup-scripts", "msg": "surface id + agent key, written to .env", "kind": "return"},
+        {"from": "setup-scripts", "to": "context-retriever", "msg": "import_data in batches of 25", "kind": "call"},
+        {"from": "context-retriever", "to": "redis", "msg": "write records + create indexes", "kind": "call"},
+        {"from": "setup-scripts", "to": "agent-memory", "msg": "clear, then seed long-term memories", "kind": "call"},
+        {"from": "setup-scripts", "to": "langcache", "msg": "flush, then seed cached responses", "kind": "call"}
+      ]
+    }
+  ]
+}
